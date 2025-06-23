@@ -3,6 +3,7 @@
 import type React from "react";
 
 import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -23,7 +24,7 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Calendar, MapPin, Users, Clock } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { Button } from "../components/ui/button";
+import { saveEvent } from "@/utils/eventStorage";
 
 export default function CreateEventPage() {
   const [formData, setFormData] = useState({
@@ -42,7 +43,6 @@ export default function CreateEventPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Verificar se está logado
     const isLoggedIn = localStorage.getItem("isLoggedIn");
     if (!isLoggedIn) {
       navigate("/login");
@@ -60,7 +60,6 @@ export default function CreateEventPage() {
     setError("");
     setSuccess("");
 
-    // Validações
     if (
       !formData.title ||
       !formData.description ||
@@ -81,7 +80,6 @@ export default function CreateEventPage() {
       return;
     }
 
-    // Verificar se a data não é no passado
     const eventDate = new Date(`${formData.date}T${formData.time}`);
     if (eventDate <= new Date()) {
       setError("A data e hora do evento devem ser no futuro");
@@ -89,21 +87,64 @@ export default function CreateEventPage() {
       return;
     }
 
-    // Simular criação do evento
     setTimeout(() => {
-      setSuccess("Evento criado com sucesso!");
-      setIsLoading(false);
+      try {
+        const userEmail = localStorage.getItem("userEmail") || "";
+        const userName = localStorage.getItem("userName") || "";
 
-      // Redirecionar após 2 segundos
-      setTimeout(() => {
-        navigate("/dashboard");
-      }, 2000);
+        console.log("Debug - Creating event with organizerId:", userEmail);
+        console.log("Debug - userName:", userName);
+
+        const now = new Date();
+        const eventDateTime = new Date(`${formData.date}T${formData.time}`);
+        let status: "upcoming" | "ongoing" | "completed" = "upcoming";
+
+        if (eventDateTime < now) {
+          status = "completed";
+        } else if (
+          Math.abs(eventDateTime.getTime() - now.getTime()) <
+          24 * 60 * 60 * 1000
+        ) {
+          status = "ongoing";
+        }
+
+        const newEvent = saveEvent({
+          title: formData.title,
+          description: formData.description,
+          date: formData.date,
+          time: formData.time,
+          location: formData.location,
+          category: formData.category,
+          capacity: Number.parseInt(formData.capacity),
+          price: Number.parseFloat(formData.price),
+          organizerId: userEmail,
+          organizerName: userName,
+          organizerEmail: userEmail,
+          status,
+        });
+
+        console.log("Debug - Event created:", newEvent);
+
+        // Verificar se o evento foi realmente salvo
+        const allEvents = JSON.parse(localStorage.getItem("events") || "[]");
+        console.log("Debug - All events in storage:", allEvents);
+
+        setSuccess("Evento criado com sucesso!");
+        setIsLoading(false);
+
+        setTimeout(() => {
+          navigate("/dashboard");
+        }, 2000);
+      } catch (err) {
+        console.error("Error creating event:", err);
+        setError("Erro ao criar evento. Tente novamente.");
+        setIsLoading(false);
+      }
     }, 1000);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">

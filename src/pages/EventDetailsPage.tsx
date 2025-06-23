@@ -7,22 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Calendar, MapPin, Users, Clock, DollarSign, User } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  date: string;
-  time: string;
-  location: string;
-  category: string;
-  capacity: number;
-  registered: number;
-  price: number;
-  organizerId: string;
-  organizerName: string;
-  organizerEmail: string;
-}
+import {
+  getEventById,
+  saveAttendee,
+  removeAttendee,
+  isUserRegistered,
+  getAttendeesByEvent,
+  type Event,
+} from "@/utils/eventStorage";
 
 export default function EventDetailsPage() {
   const { id } = useParams();
@@ -33,39 +25,31 @@ export default function EventDetailsPage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    // Verificar se está logado
     const loggedIn = localStorage.getItem("isLoggedIn") === "true";
     setIsLoggedIn(loggedIn);
 
-    // Simular carregamento do evento
-    const mockEvent: Event = {
-      id: id as string,
-      title: "Workshop de React Avançado",
-      description:
-        "Neste workshop intensivo, você aprenderá técnicas avançadas de React, incluindo hooks customizados, otimização de performance, gerenciamento de estado complexo e padrões de arquitetura. O evento é ideal para desenvolvedores que já possuem conhecimento básico em React e querem levar suas habilidades para o próximo nível.\n\nO que você vai aprender:\n• Hooks customizados e padrões avançados\n• Otimização de performance com React.memo e useMemo\n• Gerenciamento de estado com Context API e Zustand\n• Testes unitários e de integração\n• Deploy e CI/CD\n\nPré-requisitos:\n• Conhecimento básico de React e JavaScript\n• Laptop com Node.js instalado\n• Editor de código de sua preferência",
-      date: "2024-02-15",
-      time: "14:00",
-      location:
-        "Centro de Convenções Rebouças - Av. Rebouças, 600 - Pinheiros, São Paulo - SP",
-      category: "tecnologia",
-      capacity: 50,
-      registered: 32,
-      price: 0,
-      organizerId: "org1",
-      organizerName: "Tech Academy",
-      organizerEmail: "contato@techacademy.com",
-    };
+    if (id) {
+      const eventData = getEventById(id);
+      setEvent(eventData);
 
-    setEvent(mockEvent);
-
-    // Verificar se já está inscrito (simulado)
-    if (loggedIn) {
-      const registrations = JSON.parse(
-        localStorage.getItem("userRegistrations") || "[]"
-      );
-      setIsRegistered(registrations.includes(id));
+      if (loggedIn) {
+        const userEmail = localStorage.getItem("userEmail") || "";
+        setIsRegistered(isUserRegistered(id, userEmail));
+      }
     }
   }, [id]);
+
+  useEffect(() => {
+    if (!event || !id) return;
+
+    const userEmail = localStorage.getItem("userEmail") || "";
+    const isOrganizer = event.organizerId === userEmail;
+
+    if (isOrganizer) {
+      const eventAttendees = getAttendeesByEvent(id);
+      console.log("Event attendees:", eventAttendees);
+    }
+  }, [id, event]);
 
   const handleRegistration = async () => {
     if (!isLoggedIn) {
@@ -78,58 +62,64 @@ export default function EventDetailsPage() {
     setIsLoading(true);
     setMessage("");
 
-    // Simular inscrição
     setTimeout(() => {
-      if (event.registered >= event.capacity) {
-        setMessage("Evento lotado! Você foi adicionado à lista de espera.");
-      } else {
-        setMessage("Inscrição realizada com sucesso!");
+      try {
+        const userEmail = localStorage.getItem("userEmail") || "";
+        const userName = localStorage.getItem("userName") || "";
+
+        if (event.registered >= event.capacity) {
+          saveAttendee({
+            eventId: event.id,
+            name: userName,
+            email: userEmail,
+            status: "waitlist",
+            userType: "participant",
+          });
+          setMessage("Evento lotado! Você foi adicionado à lista de espera.");
+        } else {
+          saveAttendee({
+            eventId: event.id,
+            name: userName,
+            email: userEmail,
+            status: "confirmed",
+            userType: "participant",
+          });
+          setMessage("Inscrição realizada com sucesso!");
+        }
+
         setIsRegistered(true);
-
-        // Salvar inscrição localmente
-        const registrations = JSON.parse(
-          localStorage.getItem("userRegistrations") || "[]"
-        );
-        registrations.push(event.id);
-        localStorage.setItem(
-          "userRegistrations",
-          JSON.stringify(registrations)
-        );
-
-        // Atualizar número de inscritos
-        setEvent((prev) =>
-          prev ? { ...prev, registered: prev.registered + 1 } : null
-        );
+        const updatedEvent = getEventById(event.id);
+        if (updatedEvent) {
+          setEvent(updatedEvent);
+        }
+      } catch (error) {
+        setMessage("Erro ao realizar inscrição. Tente novamente.");
       }
       setIsLoading(false);
     }, 1000);
   };
 
   const handleCancelRegistration = async () => {
+    if (!event) return;
+
     setIsLoading(true);
     setMessage("");
 
-    // Simular cancelamento
     setTimeout(() => {
-      setMessage("Inscrição cancelada com sucesso.");
-      setIsRegistered(false);
+      try {
+        const userEmail = localStorage.getItem("userEmail") || "";
+        removeAttendee(event.id, userEmail);
 
-      // Remover inscrição localmente
-      const registrations = JSON.parse(
-        localStorage.getItem("userRegistrations") || "[]"
-      );
-      const updatedRegistrations = registrations.filter(
-        (regId: string) => regId !== event?.id
-      );
-      localStorage.setItem(
-        "userRegistrations",
-        JSON.stringify(updatedRegistrations)
-      );
+        setMessage("Inscrição cancelada com sucesso.");
+        setIsRegistered(false);
 
-      // Atualizar número de inscritos
-      setEvent((prev) =>
-        prev ? { ...prev, registered: Math.max(0, prev.registered - 1) } : null
-      );
+        const updatedEvent = getEventById(event.id);
+        if (updatedEvent) {
+          setEvent(updatedEvent);
+        }
+      } catch (error) {
+        setMessage("Erro ao cancelar inscrição. Tente novamente.");
+      }
       setIsLoading(false);
     }, 1000);
   };
@@ -140,6 +130,10 @@ export default function EventDetailsPage() {
       negocios: "bg-green-100 text-green-800",
       design: "bg-purple-100 text-purple-800",
       educacao: "bg-orange-100 text-orange-800",
+      saude: "bg-red-100 text-red-800",
+      arte: "bg-pink-100 text-pink-800",
+      esporte: "bg-indigo-100 text-indigo-800",
+      outros: "bg-gray-100 text-gray-800",
     };
     return (
       colors[category as keyof typeof colors] || "bg-gray-100 text-gray-800"
@@ -161,7 +155,10 @@ export default function EventDetailsPage() {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-semibold mb-2">Carregando evento...</h2>
+          <h2 className="text-2xl font-semibold mb-2">Evento não encontrado</h2>
+          <Link to="/">
+            <Button>Voltar para Home</Button>
+          </Link>
         </div>
       </div>
     );
@@ -171,7 +168,6 @@ export default function EventDetailsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -200,7 +196,6 @@ export default function EventDetailsPage() {
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
             <div>
               <div className="flex items-center gap-3 mb-4">
@@ -256,7 +251,6 @@ export default function EventDetailsPage() {
             </Card>
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-6">
             <Card>
               <CardHeader>

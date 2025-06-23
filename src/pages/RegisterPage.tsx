@@ -45,7 +45,6 @@ export default function RegisterPage() {
     setIsLoading(true);
     setError("");
 
-    // Validações
     if (
       !formData.name ||
       !formData.email ||

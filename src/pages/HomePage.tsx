@@ -20,20 +20,11 @@ import {
 } from "@/components/ui/select";
 import { Calendar, MapPin, Users, Search, Filter } from "lucide-react";
 import { Link } from "react-router-dom";
-
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  date: string;
-  time: string;
-  location: string;
-  category: string;
-  capacity: number;
-  registered: number;
-  organizerId: string;
-  organizerName: string;
-}
+import {
+  getEvents,
+  initializeMockData,
+  type Event,
+} from "@/utils/eventStorage";
 
 export default function HomePage() {
   const [events, setEvents] = useState<Event[]>([]);
@@ -43,70 +34,12 @@ export default function HomePage() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
-    // Simular dados de eventos
-    const mockEvents: Event[] = [
-      {
-        id: "1",
-        title: "Workshop de React Avançado",
-        description:
-          "Aprenda técnicas avançadas de React com hooks customizados e otimização de performance.",
-        date: "2024-02-15",
-        time: "14:00",
-        location: "Centro de Convenções - São Paulo",
-        category: "tecnologia",
-        capacity: 50,
-        registered: 32,
-        organizerId: "org1",
-        organizerName: "Tech Academy",
-      },
-      {
-        id: "2",
-        title: "Palestra: Futuro da IA",
-        description:
-          "Discussão sobre as tendências e impactos da inteligência artificial no mercado.",
-        date: "2024-02-20",
-        time: "19:00",
-        location: "Auditório Central - Rio de Janeiro",
-        category: "tecnologia",
-        capacity: 100,
-        registered: 78,
-        organizerId: "org2",
-        organizerName: "AI Institute",
-      },
-      {
-        id: "3",
-        title: "Encontro de Empreendedores",
-        description:
-          "Networking e troca de experiências entre empreendedores de diversos setores.",
-        date: "2024-02-25",
-        time: "18:30",
-        location: "Hub de Inovação - Belo Horizonte",
-        category: "negocios",
-        capacity: 80,
-        registered: 45,
-        organizerId: "org3",
-        organizerName: "Startup Hub",
-      },
-      {
-        id: "4",
-        title: "Workshop de Design UX/UI",
-        description:
-          "Aprenda os fundamentos do design de experiência do usuário e interface.",
-        date: "2024-03-01",
-        time: "09:00",
-        location: "Escola de Design - Porto Alegre",
-        category: "design",
-        capacity: 30,
-        registered: 28,
-        organizerId: "org4",
-        organizerName: "Design School",
-      },
-    ];
+    initializeMockData();
 
-    setEvents(mockEvents);
-    setFilteredEvents(mockEvents);
+    const allEvents = getEvents();
+    setEvents(allEvents);
+    setFilteredEvents(allEvents);
 
-    // Verificar se usuário está logado (simulado)
     const loggedIn = localStorage.getItem("isLoggedIn") === "true";
     setIsLoggedIn(loggedIn);
   }, []);
@@ -136,6 +69,10 @@ export default function HomePage() {
       negocios: "bg-green-100 text-green-800",
       design: "bg-purple-100 text-purple-800",
       educacao: "bg-orange-100 text-orange-800",
+      saude: "bg-red-100 text-red-800",
+      arte: "bg-pink-100 text-pink-800",
+      esporte: "bg-indigo-100 text-indigo-800",
+      outros: "bg-gray-100 text-gray-800",
     };
     return (
       colors[category as keyof typeof colors] || "bg-gray-100 text-gray-800"
@@ -152,7 +89,6 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -193,7 +129,6 @@ export default function HomePage() {
         </div>
       </header>
 
-      {/* Hero Section */}
       <section className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
           <h2 className="text-4xl font-bold mb-4">
@@ -216,7 +151,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Filters and Search */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex flex-col md:flex-row gap-4 mb-8">
           <div className="flex-1 relative">
@@ -240,12 +174,15 @@ export default function HomePage() {
                 <SelectItem value="negocios">Negócios</SelectItem>
                 <SelectItem value="design">Design</SelectItem>
                 <SelectItem value="educacao">Educação</SelectItem>
+                <SelectItem value="saude">Saúde</SelectItem>
+                <SelectItem value="arte">Arte e Cultura</SelectItem>
+                <SelectItem value="esporte">Esporte</SelectItem>
+                <SelectItem value="outros">Outros</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </div>
 
-        {/* Events Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredEvents.map((event) => {
             const availability = getAvailabilityStatus(

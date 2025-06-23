@@ -29,12 +29,12 @@ export default function LoginPage() {
     setIsLoading(true);
     setError("");
 
-    // Simular autenticação
     setTimeout(() => {
       if (email && password) {
         localStorage.setItem("isLoggedIn", "true");
         localStorage.setItem("userEmail", email);
         localStorage.setItem("userName", email.split("@")[0]);
+        localStorage.setItem("userType", "organizer");
         navigate("/dashboard");
       } else {
         setError("Por favor, preencha todos os campos");

@@ -20,19 +20,12 @@ import {
   Download,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-
-interface Event {
-  id: string;
-  title: string;
-  description: string;
-  date: string;
-  time: string;
-  location: string;
-  category: string;
-  capacity: number;
-  registered: number;
-  status: "upcoming" | "ongoing" | "completed";
-}
+import {
+  getEventsByOrganizer,
+  getAttendeesByUser,
+  getAttendeesByEvent,
+  type Event,
+} from "@/utils/eventStorage";
 
 interface Registration {
   id: string;
@@ -51,52 +44,44 @@ export default function DashboardPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Verificar se está logado
     const isLoggedIn = localStorage.getItem("isLoggedIn");
     if (!isLoggedIn) {
       navigate("/login");
       return;
     }
 
-    // Carregar dados do usuário
     const userName = localStorage.getItem("userName") || "";
     const userEmail = localStorage.getItem("userEmail") || "";
-    const userType = localStorage.getItem("userType") || "";
+    let userType = localStorage.getItem("userType") || "";
+
+    if (!userType) {
+      userType = "organizer";
+      localStorage.setItem("userType", "organizer");
+    }
+
+    console.log("Debug - userType:", userType);
+    console.log("Debug - userEmail:", userEmail);
 
     setUser({ name: userName, email: userEmail, type: userType });
 
-    // Simular eventos criados pelo usuário (se for organizador)
     if (userType === "organizer") {
-      const mockMyEvents: Event[] = [
-        {
-          id: "my1",
-          title: "Workshop de React Avançado",
-          description: "Aprenda técnicas avançadas de React",
-          date: "2024-02-15",
-          time: "14:00",
-          location: "Centro de Convenções - São Paulo",
-          category: "tecnologia",
-          capacity: 50,
-          registered: 32,
-          status: "upcoming",
-        },
-        {
-          id: "my2",
-          title: "Meetup de JavaScript",
-          description: "Discussão sobre as novidades do JS",
-          date: "2024-01-20",
-          time: "19:00",
-          location: "Coworking Tech - São Paulo",
-          category: "tecnologia",
-          capacity: 30,
-          registered: 28,
-          status: "completed",
-        },
-      ];
-      setMyEvents(mockMyEvents);
+      const organizerEvents = getEventsByOrganizer(userEmail);
+      console.log("Debug - organizerEvents:", organizerEvents);
+      console.log("Debug - total events found:", organizerEvents.length);
+      setMyEvents(organizerEvents);
     }
 
-    // Simular inscrições do usuário
+    const userAttendees = getAttendeesByUser(userEmail);
+    const registrations: Registration[] = userAttendees.map((attendee) => ({
+      id: attendee.id,
+      eventId: attendee.eventId,
+      eventTitle: "Evento",
+      eventDate: "",
+      eventTime: "",
+      eventLocation: "",
+      status: attendee.status,
+    }));
+
     const mockRegistrations: Registration[] = [
       {
         id: "reg1",
@@ -132,10 +117,24 @@ export default function DashboardPage() {
   };
 
   const exportAttendees = (eventId: string) => {
-    // Simular exportação CSV
-    const csvContent =
-      "Nome,Email,Data de Inscrição\nJoão Silva,joao@email.com,2024-01-15\nMaria Santos,maria@email.com,2024-01-16";
-    const blob = new Blob([csvContent], { type: "text/csv" });
+    const attendees = getAttendeesByEvent(eventId);
+    const csvHeader = "Nome,Email,Telefone,Data de Inscrição,Status\n";
+    const csvContent = attendees
+      .map(
+        (attendee) =>
+          `${attendee.name},${attendee.email},${
+            attendee.phone || ""
+          },${new Date(attendee.registrationDate).toLocaleDateString(
+            "pt-BR"
+          )},${
+            attendee.status === "confirmed" ? "Confirmado" : "Lista de Espera"
+          }`
+      )
+      .join("\n");
+
+    const blob = new Blob([csvHeader + csvContent], {
+      type: "text/csv;charset=utf-8;",
+    });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -178,7 +177,6 @@ export default function DashboardPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Welcome Section */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Olá, {user.name}!
@@ -191,9 +189,7 @@ export default function DashboardPage() {
         <Tabs defaultValue="registrations" className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="registrations">Minhas Inscrições</TabsTrigger>
-            {user.type === "organizer" && (
-              <TabsTrigger value="events">Meus Eventos</TabsTrigger>
-            )}
+            <TabsTrigger value="events">Meus Eventos</TabsTrigger>
           </TabsList>
 
           <TabsContent value="registrations" className="space-y-6">
@@ -252,57 +248,65 @@ export default function DashboardPage() {
             )}
           </TabsContent>
 
-          {user.type === "organizer" && (
-            <TabsContent value="events" className="space-y-6">
-              <div className="flex justify-between items-center">
-                <h2 className="text-2xl font-semibold">Eventos Organizados</h2>
+          <TabsContent value="events" className="space-y-6">
+            <div className="flex justify-between items-center">
+              <h2 className="text-2xl font-semibold">
+                {user.type === "organizer" ? "Eventos Organizados" : "Eventos"}
+              </h2>
+              {user.type === "organizer" && (
                 <Link to="/create-event">
                   <Button>
                     <Plus className="w-4 h-4 mr-2" />
                     Novo Evento
                   </Button>
                 </Link>
-              </div>
+              )}
+            </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {myEvents.map((event) => (
-                  <Card key={event.id}>
-                    <CardHeader>
-                      <div className="flex justify-between items-start mb-2">
-                        <Badge className={getStatusColor(event.status)}>
-                          {event.status === "upcoming"
-                            ? "Próximo"
-                            : event.status === "ongoing"
-                            ? "Em andamento"
-                            : "Concluído"}
-                        </Badge>
-                        <Button variant="ghost" size="sm">
-                          <Settings className="w-4 h-4" />
-                        </Button>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {myEvents.map((event) => (
+                <Card key={event.id}>
+                  <CardHeader>
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge className={getStatusColor(event.status)}>
+                        {event.status === "upcoming"
+                          ? "Próximo"
+                          : event.status === "ongoing"
+                          ? "Em andamento"
+                          : "Concluído"}
+                      </Badge>
+                      {user.type === "organizer" && (
+                        <Link to={`/event/${event.id}/attendees`}>
+                          <Button variant="ghost" size="sm">
+                            <Settings className="w-4 h-4" />
+                          </Button>
+                        </Link>
+                      )}
+                    </div>
+                    <CardTitle className="text-lg">{event.title}</CardTitle>
+                    <CardDescription className="line-clamp-2">
+                      {event.description}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        {new Date(event.date).toLocaleDateString(
+                          "pt-BR"
+                        )} às {event.time}
                       </div>
-                      <CardTitle className="text-lg">{event.title}</CardTitle>
-                      <CardDescription className="line-clamp-2">
-                        {event.description}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2 mb-4">
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Calendar className="w-4 h-4 mr-2" />
-                          {new Date(event.date).toLocaleDateString(
-                            "pt-BR"
-                          )} às {event.time}
-                        </div>
-                        <div className="flex items-center text-sm text-gray-600">
-                          <MapPin className="w-4 h-4 mr-2" />
-                          {event.location}
-                        </div>
-                        <div className="flex items-center text-sm text-gray-600">
-                          <Users className="w-4 h-4 mr-2" />
-                          {event.registered}/{event.capacity} inscritos
-                        </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <MapPin className="w-4 h-4 mr-2" />
+                        {event.location}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Users className="w-4 h-4 mr-2" />
+                        {event.registered}/{event.capacity} inscritos
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      {user.type === "organizer" && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -312,32 +316,45 @@ export default function DashboardPage() {
                           <Download className="w-4 h-4 mr-1" />
                           CSV
                         </Button>
-                        <Link to={`/event/${event.id}`} className="flex-1">
-                          <Button size="sm" className="w-full">
-                            Ver
-                          </Button>
-                        </Link>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      )}
+                      <Link
+                        to={`/event/${event.id}/attendees`}
+                        className="flex-1"
+                      >
+                        <Button size="sm" className="w-full">
+                          {user.type === "organizer"
+                            ? "Ver Inscritos"
+                            : "Ver Detalhes"}
+                        </Button>
+                      </Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
 
-              {myEvents.length === 0 && (
-                <div className="text-center py-12">
-                  <p className="text-gray-500 text-lg mb-4">
-                    Você ainda não criou nenhum evento.
-                  </p>
+            {myEvents.length === 0 && (
+              <div className="text-center py-12">
+                <p className="text-gray-500 text-lg mb-4">
+                  {user.type === "organizer"
+                    ? "Você ainda não criou nenhum evento."
+                    : "Não há eventos disponíveis."}
+                </p>
+                {user.type === "organizer" ? (
                   <Link to="/create-event">
                     <Button>
                       <Plus className="w-4 h-4 mr-2" />
                       Criar Primeiro Evento
                     </Button>
                   </Link>
-                </div>
-              )}
-            </TabsContent>
-          )}
+                ) : (
+                  <Link to="/">
+                    <Button>Explorar Eventos</Button>
+                  </Link>
+                )}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
       </div>
     </div>
