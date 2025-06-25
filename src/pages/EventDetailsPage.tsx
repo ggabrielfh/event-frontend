@@ -5,123 +5,74 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Calendar, MapPin, Users, Clock, DollarSign, User } from "lucide-react";
+import { Calendar, MapPin, Users, User } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
-import {
-  getEventById,
-  saveAttendee,
-  removeAttendee,
-  isUserRegistered,
-  getAttendeesByEvent,
-  type Event,
-} from "@/utils/eventStorage";
+import { apiService, type Event } from "@/utils/apiService";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function EventDetailsPage() {
   const { id } = useParams();
+  const { user, isAuthenticated } = useAuth();
   const [event, setEvent] = useState<Event | null>(null);
   const [isRegistered, setIsRegistered] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const loggedIn = localStorage.getItem("isLoggedIn") === "true";
-    setIsLoggedIn(loggedIn);
+    const fetchEvent = async () => {
+      if (!id) return;
 
-    if (id) {
-      const eventData = getEventById(id);
-      setEvent(eventData);
+      try {
+        setIsLoading(true);
+        setError("");
+        const eventData = await apiService.getEventById(id);
+        setEvent(eventData);
 
-      if (loggedIn) {
-        const userEmail = localStorage.getItem("userEmail") || "";
-        setIsRegistered(isUserRegistered(id, userEmail));
+        // Check if user is registered to this event
+        if (isAuthenticated && user) {
+          setIsRegistered(eventData.attendees.includes(user.id));
+        }
+      } catch (err) {
+        console.error("Failed to fetch event:", err);
+        setError("Erro ao carregar o evento. Tente novamente.");
+      } finally {
+        setIsLoading(false);
       }
-    }
-  }, [id]);
+    };
 
-  useEffect(() => {
-    if (!event || !id) return;
-
-    const userEmail = localStorage.getItem("userEmail") || "";
-    const isOrganizer = event.organizerId === userEmail;
-
-    if (isOrganizer) {
-      const eventAttendees = getAttendeesByEvent(id);
-      console.log("Event attendees:", eventAttendees);
-    }
-  }, [id, event]);
+    fetchEvent();
+  }, [id, isAuthenticated, user]);
 
   const handleRegistration = async () => {
-    if (!isLoggedIn) {
+    if (!isAuthenticated) {
       setMessage("Você precisa fazer login para se inscrever no evento.");
       return;
     }
 
-    if (!event) return;
+    if (!event || !id) return;
 
-    setIsLoading(true);
+    setIsSubmitting(true);
     setMessage("");
+    setError("");
 
-    setTimeout(() => {
-      try {
-        const userEmail = localStorage.getItem("userEmail") || "";
-        const userName = localStorage.getItem("userName") || "";
+    try {
+      await apiService.registerToEvent(id);
+      setMessage("Inscrição realizada com sucesso!");
+      setIsRegistered(true);
 
-        if (event.registered >= event.capacity) {
-          saveAttendee({
-            eventId: event.id,
-            name: userName,
-            email: userEmail,
-            status: "waitlist",
-            userType: "participant",
-          });
-          setMessage("Evento lotado! Você foi adicionado à lista de espera.");
-        } else {
-          saveAttendee({
-            eventId: event.id,
-            name: userName,
-            email: userEmail,
-            status: "confirmed",
-            userType: "participant",
-          });
-          setMessage("Inscrição realizada com sucesso!");
-        }
-
-        setIsRegistered(true);
-        const updatedEvent = getEventById(event.id);
-        if (updatedEvent) {
-          setEvent(updatedEvent);
-        }
-      } catch (error) {
-        setMessage("Erro ao realizar inscrição. Tente novamente.");
-      }
-      setIsLoading(false);
-    }, 1000);
-  };
-
-  const handleCancelRegistration = async () => {
-    if (!event) return;
-
-    setIsLoading(true);
-    setMessage("");
-
-    setTimeout(() => {
-      try {
-        const userEmail = localStorage.getItem("userEmail") || "";
-        removeAttendee(event.id, userEmail);
-
-        setMessage("Inscrição cancelada com sucesso.");
-        setIsRegistered(false);
-
-        const updatedEvent = getEventById(event.id);
-        if (updatedEvent) {
-          setEvent(updatedEvent);
-        }
-      } catch (error) {
-        setMessage("Erro ao cancelar inscrição. Tente novamente.");
-      }
-      setIsLoading(false);
-    }, 1000);
+      // Refresh event data to get updated attendees list
+      const updatedEvent = await apiService.getEventById(id);
+      setEvent(updatedEvent);
+    } catch (err) {
+      console.error("Registration failed:", err);
+      setError(
+        "Erro ao realizar inscrição. Verifique se há vagas disponíveis."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const getCategoryColor = (category: string) => {
@@ -136,14 +87,18 @@ export default function EventDetailsPage() {
       outros: "bg-gray-100 text-gray-800",
     };
     return (
-      colors[category as keyof typeof colors] || "bg-gray-100 text-gray-800"
+      colors[category.toLowerCase() as keyof typeof colors] ||
+      "bg-gray-100 text-gray-800"
     );
   };
 
   const getAvailabilityStatus = () => {
     if (!event) return { text: "", color: "" };
 
-    const percentage = (event.registered / event.capacity) * 100;
+    const registered = event.attendees.length;
+    const capacity = event.limit;
+    const percentage = (registered / capacity) * 100;
+
     if (percentage >= 100)
       return { text: "Evento Lotado", color: "text-red-600" };
     if (percentage >= 80)
@@ -151,11 +106,24 @@ export default function EventDetailsPage() {
     return { text: "Vagas Disponíveis", color: "text-green-600" };
   };
 
-  if (!event) {
+  if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h2 className="text-2xl font-semibold mb-2">Evento não encontrado</h2>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Carregando evento...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !event) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold mb-2">
+            {error || "Evento não encontrado"}
+          </h2>
           <Link to="/">
             <Button>Voltar para Home</Button>
           </Link>
@@ -169,13 +137,14 @@ export default function EventDetailsPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b">
+        {" "}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <Link to="/" className="text-2xl font-bold text-gray-900">
               EventHub
             </Link>
             <nav className="flex items-center space-x-4">
-              {isLoggedIn ? (
+              {isAuthenticated ? (
                 <Link to="/dashboard">
                   <Button variant="ghost">Dashboard</Button>
                 </Link>
@@ -207,7 +176,7 @@ export default function EventDetailsPage() {
                 </span>
               </div>
               <h1 className="text-3xl font-bold text-gray-900 mb-4">
-                {event.title}
+                {event.name}
               </h1>
             </div>
 
@@ -217,14 +186,16 @@ export default function EventDetailsPage() {
               </CardHeader>
               <CardContent>
                 <div className="prose max-w-none">
-                  {event.description.split("\n").map((paragraph, index) => (
-                    <p
-                      key={index}
-                      className="mb-4 text-gray-700 leading-relaxed"
-                    >
-                      {paragraph}
-                    </p>
-                  ))}
+                  {event.description
+                    .split("\n")
+                    .map((paragraph, paragraphIndex) => (
+                      <p
+                        key={paragraph || `empty-${paragraphIndex}`}
+                        className="mb-4 text-gray-700 leading-relaxed"
+                      >
+                        {paragraph}
+                      </p>
+                    ))}
                 </div>
               </CardContent>
             </Card>
@@ -239,11 +210,9 @@ export default function EventDetailsPage() {
                     <User className="w-6 h-6 text-gray-600" />
                   </div>
                   <div>
-                    <p className="font-medium text-gray-900">
-                      {event.organizerName}
-                    </p>
+                    <p className="font-medium text-gray-900">Organizador</p>
                     <p className="text-sm text-gray-600">
-                      {event.organizerEmail}
+                      ID: {event.organizer_id}
                     </p>
                   </div>
                 </div>
@@ -271,11 +240,6 @@ export default function EventDetailsPage() {
                   </div>
                 </div>
 
-                <div className="flex items-center text-gray-700">
-                  <Clock className="w-5 h-5 mr-3 text-gray-400" />
-                  <p>{event.time}</p>
-                </div>
-
                 <div className="flex items-start text-gray-700">
                   <MapPin className="w-5 h-5 mr-3 text-gray-400 mt-0.5" />
                   <p className="leading-relaxed">{event.location}</p>
@@ -284,23 +248,9 @@ export default function EventDetailsPage() {
                 <div className="flex items-center text-gray-700">
                   <Users className="w-5 h-5 mr-3 text-gray-400" />
                   <p>
-                    {event.registered}/{event.capacity} inscritos
+                    {event.attendees.length}/{event.limit} inscritos
                   </p>
                 </div>
-
-                {event.price > 0 && (
-                  <div className="flex items-center text-gray-700">
-                    <DollarSign className="w-5 h-5 mr-3 text-gray-400" />
-                    <p className="font-medium">R$ {event.price.toFixed(2)}</p>
-                  </div>
-                )}
-
-                {event.price === 0 && (
-                  <div className="flex items-center text-green-600">
-                    <DollarSign className="w-5 h-5 mr-3" />
-                    <p className="font-medium">Gratuito</p>
-                  </div>
-                )}
               </CardContent>
             </Card>
 
@@ -312,7 +262,15 @@ export default function EventDetailsPage() {
                   </Alert>
                 )}
 
-                {!isLoggedIn ? (
+                {error && (
+                  <Alert className="mb-4 border-red-200 bg-red-50">
+                    <AlertDescription className="text-red-600">
+                      {error}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {!isAuthenticated ? (
                   <div className="space-y-3">
                     <p className="text-sm text-gray-600 text-center">
                       Faça login para se inscrever no evento
@@ -321,34 +279,31 @@ export default function EventDetailsPage() {
                       <Button className="w-full">Fazer Login</Button>
                     </Link>
                   </div>
-                ) : isRegistered ? (
-                  <div className="space-y-3">
-                    <div className="text-center">
-                      <Badge className="bg-green-100 text-green-800 mb-2">
-                        Você está inscrito
-                      </Badge>
-                    </div>
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={handleCancelRegistration}
-                      disabled={isLoading}
-                    >
-                      {isLoading ? "Cancelando..." : "Cancelar Inscrição"}
-                    </Button>
-                  </div>
                 ) : (
-                  <Button
-                    className="w-full"
-                    onClick={handleRegistration}
-                    disabled={isLoading}
-                  >
-                    {isLoading
-                      ? "Inscrevendo..."
-                      : event.registered >= event.capacity
-                      ? "Entrar na Lista de Espera"
-                      : "Inscrever-se"}
-                  </Button>
+                  <div className="space-y-3">
+                    {isRegistered ? (
+                      <div className="text-center">
+                        <Badge className="bg-green-100 text-green-800 mb-2">
+                          Você está inscrito neste evento
+                        </Badge>
+                      </div>
+                    ) : (
+                      <Button
+                        className="w-full"
+                        onClick={handleRegistration}
+                        disabled={
+                          isSubmitting || event.attendees.length >= event.limit
+                        }
+                      >
+                        {(() => {
+                          if (isSubmitting) return "Inscrevendo...";
+                          if (event.attendees.length >= event.limit)
+                            return "Evento Lotado";
+                          return "Inscrever-se";
+                        })()}
+                      </Button>
+                    )}
+                  </div>
                 )}
               </CardContent>
             </Card>

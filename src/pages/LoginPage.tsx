@@ -15,32 +15,36 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const { login, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Pega a rota de onde o usuário veio, ou vai para dashboard por padrão
+  const from =
+    (location.state as { from?: Location })?.from?.pathname ?? "/dashboard";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     setError("");
 
-    setTimeout(() => {
-      if (email && password) {
-        localStorage.setItem("isLoggedIn", "true");
-        localStorage.setItem("userEmail", email);
-        localStorage.setItem("userName", email.split("@")[0]);
-        localStorage.setItem("userType", "organizer");
-        navigate("/dashboard");
-      } else {
-        setError("Por favor, preencha todos os campos");
-      }
-      setIsLoading(false);
-    }, 1000);
+    if (!email || !password) {
+      setError("Por favor, preencha todos os campos");
+      return;
+    }
+
+    try {
+      await login(email, password);
+      navigate(from, { replace: true });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Erro ao fazer login");
+    }
   };
 
   return (

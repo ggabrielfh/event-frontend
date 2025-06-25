@@ -20,48 +20,64 @@ import {
 } from "@/components/ui/select";
 import { Calendar, MapPin, Users, Search, Filter } from "lucide-react";
 import { Link } from "react-router-dom";
-import {
-  getEvents,
-  initializeMockData,
-  type Event,
-} from "@/utils/eventStorage";
+import { apiService, type Event } from "@/utils/apiService";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function HomePage() {
   const [events, setEvents] = useState<Event[]>([]);
-  const [filteredEvents, setFilteredEvents] = useState<Event[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
+  const { isAuthenticated } = useAuth();
+
+  const loadEvents = async () => {
+    try {
+      setIsLoading(true);
+      const allEvents = await apiService.getAllEvents();
+      setEvents(allEvents);
+    } catch (error) {
+      console.error("Erro ao carregar eventos:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const searchEvents = async (term: string) => {
+    if (!term.trim()) {
+      loadEvents();
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      const searchResults = await apiService.searchEvents(term);
+      setEvents(searchResults);
+    } catch (error) {
+      console.error("Erro ao buscar eventos:", error);
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   useEffect(() => {
-    initializeMockData();
-
-    const allEvents = getEvents();
-    setEvents(allEvents);
-    setFilteredEvents(allEvents);
-
-    const loggedIn = localStorage.getItem("isLoggedIn") === "true";
-    setIsLoggedIn(loggedIn);
+    loadEvents();
   }, []);
 
+  // Debounce search to avoid too many API calls
   useEffect(() => {
-    let filtered = events;
+    const timeoutId = setTimeout(() => {
+      searchEvents(searchTerm);
+    }, 500);
 
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (event) =>
-          event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          event.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          event.location.toLowerCase().includes(searchTerm.toLowerCase())
-      );
-    }
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
 
-    if (categoryFilter !== "all") {
-      filtered = filtered.filter((event) => event.category === categoryFilter);
-    }
-
-    setFilteredEvents(filtered);
-  }, [events, searchTerm, categoryFilter]);
+  // Filter by category locally after search
+  const filteredEvents =
+    categoryFilter === "all"
+      ? events
+      : events.filter((event) => event.category === categoryFilter);
 
   const getCategoryColor = (category: string) => {
     const colors = {
@@ -75,16 +91,25 @@ export default function HomePage() {
       outros: "bg-gray-100 text-gray-800",
     };
     return (
-      colors[category as keyof typeof colors] || "bg-gray-100 text-gray-800"
+      colors[category.toLowerCase() as keyof typeof colors] ||
+      "bg-gray-100 text-gray-800"
     );
   };
 
-  const getAvailabilityStatus = (capacity: number, registered: number) => {
-    const percentage = (registered / capacity) * 100;
+  const getAvailabilityStatus = (limit: number, attendeesCount: number) => {
+    const percentage = (attendeesCount / limit) * 100;
     if (percentage >= 100) return { text: "Lotado", color: "text-red-600" };
     if (percentage >= 80)
       return { text: "Poucas vagas", color: "text-orange-600" };
     return { text: "Vagas disponíveis", color: "text-green-600" };
+  };
+
+  const handleLogout = async () => {
+    try {
+      await apiService.logout();
+    } catch (error) {
+      console.error("Erro ao fazer logout:", error);
+    }
   };
 
   return (
@@ -96,7 +121,7 @@ export default function HomePage() {
               <h1 className="text-2xl font-bold text-gray-900">EventHub</h1>
             </div>
             <nav className="flex items-center space-x-4">
-              {isLoggedIn ? (
+              {isAuthenticated ? (
                 <>
                   <Link to="/dashboard">
                     <Button variant="ghost">Dashboard</Button>
@@ -104,13 +129,7 @@ export default function HomePage() {
                   <Link to="/create-event">
                     <Button variant="ghost">Criar Evento</Button>
                   </Link>
-                  <Button
-                    variant="outline"
-                    onClick={() => {
-                      localStorage.removeItem("isLoggedIn");
-                      setIsLoggedIn(false);
-                    }}
-                  >
+                  <Button variant="outline" onClick={handleLogout}>
                     Sair
                   </Button>
                 </>
@@ -138,7 +157,7 @@ export default function HomePage() {
             Conecte-se com pessoas, aprenda coisas novas e expanda seus
             horizontes
           </p>
-          {!isLoggedIn && (
+          {!isAuthenticated && (
             <Link to="/register">
               <Button
                 size="lg"
@@ -184,60 +203,69 @@ export default function HomePage() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredEvents.map((event) => {
-            const availability = getAvailabilityStatus(
-              event.capacity,
-              event.registered
-            );
-            return (
-              <Card
-                key={event.id}
-                className="hover:shadow-lg transition-shadow"
-              >
-                <CardHeader>
-                  <div className="flex justify-between items-start mb-2">
-                    <Badge className={getCategoryColor(event.category)}>
-                      {event.category}
-                    </Badge>
-                    <span
-                      className={`text-sm font-medium ${availability.color}`}
-                    >
-                      {availability.text}
-                    </span>
-                  </div>
-                  <CardTitle className="text-lg">{event.title}</CardTitle>
-                  <CardDescription className="line-clamp-2">
-                    {event.description}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-2 mb-4">
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Calendar className="w-4 h-4 mr-2" />
-                      {new Date(event.date).toLocaleDateString("pt-BR")} às{" "}
-                      {event.time}
+          {isLoading || isSearching ? (
+            <div className="col-span-full text-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+              <p className="text-gray-500 text-lg">
+                {isLoading ? "Carregando eventos..." : "Buscando eventos..."}
+              </p>
+            </div>
+          ) : (
+            filteredEvents.map((event) => {
+              const attendeesCount = event.attendees?.length || 0;
+              const availability = getAvailabilityStatus(
+                event.limit,
+                attendeesCount
+              );
+              return (
+                <Card
+                  key={event.id}
+                  className="hover:shadow-lg transition-shadow"
+                >
+                  <CardHeader>
+                    <div className="flex justify-between items-start mb-2">
+                      <Badge className={getCategoryColor(event.category)}>
+                        {event.category}
+                      </Badge>
+                      <span
+                        className={`text-sm font-medium ${availability.color}`}
+                      >
+                        {availability.text}
+                      </span>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <MapPin className="w-4 h-4 mr-2" />
-                      {event.location}
+                    <CardTitle className="text-lg">{event.name}</CardTitle>
+                    <CardDescription className="line-clamp-2">
+                      {event.description}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-2 mb-4">
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Calendar className="w-4 h-4 mr-2" />
+                        {new Date(event.date).toLocaleDateString("pt-BR")}
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <MapPin className="w-4 h-4 mr-2" />
+                        {event.location}
+                      </div>
+                      <div className="flex items-center text-sm text-gray-600">
+                        <Users className="w-4 h-4 mr-2" />
+                        {attendeesCount}/{event.limit} inscritos
+                      </div>
                     </div>
-                    <div className="flex items-center text-sm text-gray-600">
-                      <Users className="w-4 h-4 mr-2" />
-                      {event.registered}/{event.capacity} inscritos
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-500">
+                        Evento #{event.id.slice(0, 8)}
+                      </span>
+                      <Link to={`/event/${event.id}`}>
+                        <Button size="sm">Ver Detalhes</Button>
+                      </Link>
                     </div>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-500">
-                      por {event.organizerName}
-                    </span>
-                    <Link to={`/event/${event.id}`}>
-                      <Button size="sm">Ver Detalhes</Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+                  </CardContent>
+                </Card>
+              );
+            })
+          )}
         </div>
 
         {filteredEvents.length === 0 && (

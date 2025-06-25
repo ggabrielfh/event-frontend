@@ -24,31 +24,30 @@ import {
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Calendar, MapPin, Users, Clock } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import { saveEvent } from "@/utils/eventStorage";
+import { apiService } from "@/utils/apiService";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function CreateEventPage() {
   const [formData, setFormData] = useState({
-    title: "",
+    name: "",
     description: "",
     date: "",
-    time: "",
     location: "",
     category: "",
-    capacity: "",
-    price: "0",
+    limit: "",
   });
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
 
   useEffect(() => {
-    const isLoggedIn = localStorage.getItem("isLoggedIn");
-    if (!isLoggedIn) {
+    if (!isAuthenticated) {
       navigate("/login");
       return;
     }
-  }, [navigate]);
+  }, [navigate, isAuthenticated]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -61,86 +60,52 @@ export default function CreateEventPage() {
     setSuccess("");
 
     if (
-      !formData.title ||
+      !formData.name ||
       !formData.description ||
       !formData.date ||
-      !formData.time ||
       !formData.location ||
       !formData.category ||
-      !formData.capacity
+      !formData.limit
     ) {
       setError("Por favor, preencha todos os campos obrigatórios");
       setIsLoading(false);
       return;
     }
 
-    if (Number.parseInt(formData.capacity) <= 0) {
-      setError("A capacidade deve ser maior que zero");
+    if (Number.parseInt(formData.limit) <= 0) {
+      setError("O limite de participantes deve ser maior que zero");
       setIsLoading(false);
       return;
     }
 
-    const eventDate = new Date(`${formData.date}T${formData.time}`);
+    const eventDate = new Date(formData.date);
     if (eventDate <= new Date()) {
-      setError("A data e hora do evento devem ser no futuro");
+      setError("A data do evento deve ser no futuro");
       setIsLoading(false);
       return;
     }
 
-    setTimeout(() => {
-      try {
-        const userEmail = localStorage.getItem("userEmail") || "";
-        const userName = localStorage.getItem("userName") || "";
+    try {
+      const eventData = {
+        name: formData.name,
+        description: formData.description,
+        date: formData.date,
+        location: formData.location,
+        category: formData.category,
+        limit: Number.parseInt(formData.limit),
+      };
 
-        console.log("Debug - Creating event with organizerId:", userEmail);
-        console.log("Debug - userName:", userName);
+      await apiService.createEvent(eventData);
+      setSuccess("Evento criado com sucesso!");
 
-        const now = new Date();
-        const eventDateTime = new Date(`${formData.date}T${formData.time}`);
-        let status: "upcoming" | "ongoing" | "completed" = "upcoming";
-
-        if (eventDateTime < now) {
-          status = "completed";
-        } else if (
-          Math.abs(eventDateTime.getTime() - now.getTime()) <
-          24 * 60 * 60 * 1000
-        ) {
-          status = "ongoing";
-        }
-
-        const newEvent = saveEvent({
-          title: formData.title,
-          description: formData.description,
-          date: formData.date,
-          time: formData.time,
-          location: formData.location,
-          category: formData.category,
-          capacity: Number.parseInt(formData.capacity),
-          price: Number.parseFloat(formData.price),
-          organizerId: userEmail,
-          organizerName: userName,
-          organizerEmail: userEmail,
-          status,
-        });
-
-        console.log("Debug - Event created:", newEvent);
-
-        // Verificar se o evento foi realmente salvo
-        const allEvents = JSON.parse(localStorage.getItem("events") || "[]");
-        console.log("Debug - All events in storage:", allEvents);
-
-        setSuccess("Evento criado com sucesso!");
-        setIsLoading(false);
-
-        setTimeout(() => {
-          navigate("/dashboard");
-        }, 2000);
-      } catch (err) {
-        console.error("Error creating event:", err);
-        setError("Erro ao criar evento. Tente novamente.");
-        setIsLoading(false);
-      }
-    }, 1000);
+      setTimeout(() => {
+        navigate("/dashboard");
+      }, 2000);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Erro ao criar evento");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -200,12 +165,12 @@ export default function CreateEventPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="md:col-span-2 space-y-2">
-                  <Label htmlFor="title">Título do Evento *</Label>
+                  <Label htmlFor="name">Nome do Evento *</Label>
                   <Input
-                    id="title"
+                    id="name"
                     placeholder="Ex: Workshop de React Avançado"
-                    value={formData.title}
-                    onChange={(e) => handleInputChange("title", e.target.value)}
+                    value={formData.name}
+                    onChange={(e) => handleInputChange("name", e.target.value)}
                     required
                   />
                 </div>
@@ -225,33 +190,16 @@ export default function CreateEventPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="date">Data *</Label>
+                  <Label htmlFor="date">Data e Hora *</Label>
                   <div className="relative">
                     <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <Input
                       id="date"
-                      type="date"
+                      type="datetime-local"
                       className="pl-10"
                       value={formData.date}
                       onChange={(e) =>
                         handleInputChange("date", e.target.value)
-                      }
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="time">Horário *</Label>
-                  <div className="relative">
-                    <Clock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-                    <Input
-                      id="time"
-                      type="time"
-                      className="pl-10"
-                      value={formData.time}
-                      onChange={(e) =>
-                        handleInputChange("time", e.target.value)
                       }
                       required
                     />
@@ -309,29 +257,13 @@ export default function CreateEventPage() {
                       placeholder="Ex: 50"
                       className="pl-10"
                       min="1"
-                      value={formData.capacity}
+                      value={formData.limit}
                       onChange={(e) =>
-                        handleInputChange("capacity", e.target.value)
+                        handleInputChange("limit", e.target.value)
                       }
                       required
                     />
                   </div>
-                </div>
-
-                <div className="md:col-span-2 space-y-2">
-                  <Label htmlFor="price">Preço (R$)</Label>
-                  <Input
-                    id="price"
-                    type="number"
-                    placeholder="0.00"
-                    step="0.01"
-                    min="0"
-                    value={formData.price}
-                    onChange={(e) => handleInputChange("price", e.target.value)}
-                  />
-                  <p className="text-sm text-gray-500">
-                    Deixe em 0 para eventos gratuitos
-                  </p>
                 </div>
               </div>
 

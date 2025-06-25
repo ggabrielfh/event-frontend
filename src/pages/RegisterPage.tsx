@@ -15,14 +15,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Link, useNavigate } from "react-router-dom";
+import { apiService } from "@/utils/apiService";
 
 export default function RegisterPage() {
   const [formData, setFormData] = useState({
@@ -30,7 +24,6 @@ export default function RegisterPage() {
     email: "",
     password: "",
     confirmPassword: "",
-    userType: "",
   });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -45,12 +38,7 @@ export default function RegisterPage() {
     setIsLoading(true);
     setError("");
 
-    if (
-      !formData.name ||
-      !formData.email ||
-      !formData.password ||
-      !formData.userType
-    ) {
+    if (!formData.name || !formData.email || !formData.password) {
       setError("Por favor, preencha todos os campos");
       setIsLoading(false);
       return;
@@ -68,15 +56,25 @@ export default function RegisterPage() {
       return;
     }
 
-    // Simular cadastro
-    setTimeout(() => {
-      localStorage.setItem("isLoggedIn", "true");
-      localStorage.setItem("userEmail", formData.email);
-      localStorage.setItem("userName", formData.name);
-      localStorage.setItem("userType", formData.userType);
+    try {
+      await apiService.createUser({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+      });
+
+      // Após criar o usuário, faz login automaticamente
+      await apiService.login({
+        email: formData.email,
+        password: formData.password,
+      });
+
       navigate("/dashboard");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Erro ao criar conta");
+    } finally {
       setIsLoading(false);
-    }, 1000);
+    }
   };
 
   return (
@@ -116,21 +114,6 @@ export default function RegisterPage() {
                 onChange={(e) => handleInputChange("email", e.target.value)}
                 required
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="userType">Tipo de usuário</Label>
-              <Select
-                value={formData.userType}
-                onValueChange={(value) => handleInputChange("userType", value)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecione o tipo" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="participant">Participante</SelectItem>
-                  <SelectItem value="organizer">Organizador</SelectItem>
-                </SelectContent>
-              </Select>
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Senha</Label>

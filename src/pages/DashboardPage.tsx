@@ -10,142 +10,130 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
 import {
-  Calendar,
-  MapPin,
-  Users,
-  Plus,
-  Settings,
-  Download,
-} from "lucide-react";
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Calendar, MapPin, Users, Plus, Search, Filter } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  getEventsByOrganizer,
-  getAttendeesByUser,
-  getAttendeesByEvent,
-  type Event,
-} from "@/utils/eventStorage";
-
-interface Registration {
-  id: string;
-  eventId: string;
-  eventTitle: string;
-  eventDate: string;
-  eventTime: string;
-  eventLocation: string;
-  status: "confirmed" | "waitlist";
-}
+import { apiService, type Event } from "@/utils/apiService";
+import { useAuth } from "@/contexts/AuthContext";
 
 export default function DashboardPage() {
-  const [user, setUser] = useState({ name: "", email: "", type: "" });
   const [myEvents, setMyEvents] = useState<Event[]>([]);
-  const [myRegistrations, setMyRegistrations] = useState<Registration[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSearching, setIsSearching] = useState(false);
   const navigate = useNavigate();
+  const { isAuthenticated } = useAuth();
+
+  const loadEvents = async () => {
+    try {
+      setIsLoading(true);
+      const userEvents = await apiService.getEventsByUser();
+      setMyEvents(userEvents);
+    } catch (error) {
+      console.error("Erro ao carregar eventos:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const isLoggedIn = localStorage.getItem("isLoggedIn");
-    if (!isLoggedIn) {
+    if (!isAuthenticated) {
       navigate("/login");
       return;
     }
 
-    const userName = localStorage.getItem("userName") || "";
-    const userEmail = localStorage.getItem("userEmail") || "";
-    let userType = localStorage.getItem("userType") || "";
+    loadEvents();
+  }, [navigate, isAuthenticated]);
 
-    if (!userType) {
-      userType = "organizer";
-      localStorage.setItem("userType", "organizer");
+  const searchEvents = async (term: string) => {
+    if (!term.trim()) {
+      loadEvents();
+      return;
     }
 
-    console.log("Debug - userType:", userType);
-    console.log("Debug - userEmail:", userEmail);
-
-    setUser({ name: userName, email: userEmail, type: userType });
-
-    if (userType === "organizer") {
-      const organizerEvents = getEventsByOrganizer(userEmail);
-      console.log("Debug - organizerEvents:", organizerEvents);
-      console.log("Debug - total events found:", organizerEvents.length);
-      setMyEvents(organizerEvents);
+    try {
+      setIsSearching(true);
+      // Use the global search API, then filter to only show user's registered events
+      const searchResults = await apiService.searchEvents(term);
+      const userEvents = await apiService.getEventsByUser();
+      const userEventIds = new Set(userEvents.map((event) => event.id));
+      const filteredResults = searchResults.filter((event) =>
+        userEventIds.has(event.id)
+      );
+      setMyEvents(filteredResults);
+    } catch (error) {
+      console.error("Erro ao buscar eventos:", error);
+    } finally {
+      setIsSearching(false);
     }
+  };
 
-    const userAttendees = getAttendeesByUser(userEmail);
-    const registrations: Registration[] = userAttendees.map((attendee) => ({
-      id: attendee.id,
-      eventId: attendee.eventId,
-      eventTitle: "Evento",
-      eventDate: "",
-      eventTime: "",
-      eventLocation: "",
-      status: attendee.status,
-    }));
+  // Debounce search to avoid too many API calls
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      searchEvents(searchTerm);
+    }, 500);
 
-    const mockRegistrations: Registration[] = [
-      {
-        id: "reg1",
-        eventId: "2",
-        eventTitle: "Palestra: Futuro da IA",
-        eventDate: "2024-02-20",
-        eventTime: "19:00",
-        eventLocation: "Auditório Central - Rio de Janeiro",
-        status: "confirmed",
-      },
-      {
-        id: "reg2",
-        eventId: "3",
-        eventTitle: "Encontro de Empreendedores",
-        eventDate: "2024-02-25",
-        eventTime: "18:30",
-        eventLocation: "Hub de Inovação - Belo Horizonte",
-        status: "confirmed",
-      },
-    ];
-    setMyRegistrations(mockRegistrations);
-  }, [navigate]);
+    return () => clearTimeout(timeoutId);
+  }, [searchTerm]);
 
-  const getStatusColor = (status: string) => {
+  // Filter by category locally after search
+  const filteredEvents =
+    categoryFilter === "all"
+      ? myEvents
+      : myEvents.filter((event) => event.category === categoryFilter);
+
+  const getCategoryColor = (category: string) => {
     const colors = {
-      upcoming: "bg-blue-100 text-blue-800",
-      ongoing: "bg-green-100 text-green-800",
-      completed: "bg-gray-100 text-gray-800",
-      confirmed: "bg-green-100 text-green-800",
-      waitlist: "bg-yellow-100 text-yellow-800",
+      tecnologia: "bg-blue-100 text-blue-800",
+      negocios: "bg-green-100 text-green-800",
+      design: "bg-purple-100 text-purple-800",
+      educacao: "bg-orange-100 text-orange-800",
+      saude: "bg-red-100 text-red-800",
+      arte: "bg-pink-100 text-pink-800",
+      esporte: "bg-indigo-100 text-indigo-800",
+      outros: "bg-gray-100 text-gray-800",
     };
-    return colors[status as keyof typeof colors] || "bg-gray-100 text-gray-800";
+    return (
+      colors[category.toLowerCase() as keyof typeof colors] ||
+      "bg-gray-100 text-gray-800"
+    );
   };
 
-  const exportAttendees = (eventId: string) => {
-    const attendees = getAttendeesByEvent(eventId);
-    const csvHeader = "Nome,Email,Telefone,Data de Inscrição,Status\n";
-    const csvContent = attendees
-      .map(
-        (attendee) =>
-          `${attendee.name},${attendee.email},${
-            attendee.phone || ""
-          },${new Date(attendee.registrationDate).toLocaleDateString(
-            "pt-BR"
-          )},${
-            attendee.status === "confirmed" ? "Confirmado" : "Lista de Espera"
-          }`
-      )
-      .join("\n");
-
-    const blob = new Blob([csvHeader + csvContent], {
-      type: "text/csv;charset=utf-8;",
-    });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `inscritos-evento-${eventId}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
+  const getEventStatus = (limit: number, attendeesCount: number) => {
+    const percentage = (attendeesCount / limit) * 100;
+    if (percentage >= 100) return { text: "Inscrito", color: "text-green-600" };
+    if (percentage >= 80) return { text: "Inscrito", color: "text-green-600" };
+    return { text: "Inscrito", color: "text-green-600" };
   };
+
+  const handleLogout = async () => {
+    try {
+      await apiService.logout();
+      navigate("/");
+    } catch (error) {
+      console.error("Erro ao fazer logout:", error);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <p className="text-gray-500 text-lg">Carregando eventos...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -157,18 +145,12 @@ export default function DashboardPage() {
                 <Button variant="ghost">Explorar Eventos</Button>
               </Link>
               <Link to="/create-event">
-                <Button variant="ghost">
+                <Button>
                   <Plus className="w-4 h-4 mr-2" />
                   Criar Evento
                 </Button>
               </Link>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  localStorage.clear();
-                  navigate("/");
-                }}
-              >
+              <Button variant="outline" onClick={handleLogout}>
                 Sair
               </Button>
             </nav>
@@ -176,114 +158,108 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Olá, {user.name}!
-          </h1>
-          <p className="text-gray-600">
-            Gerencie seus eventos e inscrições em um só lugar.
+      <section className="bg-gradient-to-r from-green-600 to-blue-600 text-white py-12">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 className="text-3xl font-bold mb-4">Minhas Inscrições</h2>
+          <p className="text-xl mb-6 opacity-90">
+            Acompanhe todos os eventos em que você se inscreveu
           </p>
+          <Link to="/">
+            <Button
+              size="lg"
+              className="bg-white text-green-600 hover:bg-gray-100"
+            >
+              <Search className="w-4 h-4 mr-2" />
+              Explorar Mais Eventos
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="flex flex-col md:flex-row gap-4 mb-8">
+          <div className="flex-1 relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <Input
+              placeholder={
+                isSearching ? "Buscando..." : "Buscar nas suas inscrições..."
+              }
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10"
+              disabled={isSearching}
+            />
+          </div>
+          <div className="flex gap-2">
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-48">
+                <Filter className="w-4 h-4 mr-2" />
+                <SelectValue placeholder="Categoria" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todas as categorias</SelectItem>
+                <SelectItem value="tecnologia">Tecnologia</SelectItem>
+                <SelectItem value="negocios">Negócios</SelectItem>
+                <SelectItem value="design">Design</SelectItem>
+                <SelectItem value="educacao">Educação</SelectItem>
+                <SelectItem value="saude">Saúde</SelectItem>
+                <SelectItem value="arte">Arte e Cultura</SelectItem>
+                <SelectItem value="esporte">Esporte</SelectItem>
+                <SelectItem value="outros">Outros</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <Tabs defaultValue="registrations" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="registrations">Minhas Inscrições</TabsTrigger>
-            <TabsTrigger value="events">Meus Eventos</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="registrations" className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-semibold">Eventos Inscritos</h2>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {myRegistrations.map((registration) => (
-                <Card key={registration.id}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start mb-2">
-                      <Badge className={getStatusColor(registration.status)}>
-                        {registration.status === "confirmed"
-                          ? "Confirmado"
-                          : "Lista de espera"}
-                      </Badge>
-                    </div>
-                    <CardTitle className="text-lg">
-                      {registration.eventTitle}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 mb-4">
-                      <div className="flex items-center text-sm text-gray-600">
-                        <Calendar className="w-4 h-4 mr-2" />
-                        {new Date(registration.eventDate).toLocaleDateString(
-                          "pt-BR"
-                        )}{" "}
-                        às {registration.eventTime}
-                      </div>
-                      <div className="flex items-center text-sm text-gray-600">
-                        <MapPin className="w-4 h-4 mr-2" />
-                        {registration.eventLocation}
-                      </div>
-                    </div>
-                    <Link to={`/event/${registration.eventId}`}>
-                      <Button size="sm" className="w-full">
-                        Ver Detalhes
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredEvents.length === 0 && !isLoading ? (
+            <div className="col-span-full">
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <h3 className="text-lg font-medium text-gray-900 mb-2">
+                    {searchTerm || categoryFilter !== "all"
+                      ? "Nenhum evento encontrado"
+                      : "Você ainda não se inscreveu em nenhum evento"}
+                  </h3>
+                  <p className="text-gray-500 mb-6">
+                    {searchTerm || categoryFilter !== "all"
+                      ? "Tente ajustar os filtros de busca."
+                      : "Explore eventos interessantes e faça sua primeira inscrição."}
+                  </p>
+                  {!searchTerm && categoryFilter === "all" && (
+                    <Link to="/">
+                      <Button>
+                        <Search className="w-4 h-4 mr-2" />
+                        Explorar Eventos
                       </Button>
                     </Link>
-                  </CardContent>
-                </Card>
-              ))}
+                  )}
+                </CardContent>
+              </Card>
             </div>
-
-            {myRegistrations.length === 0 && (
-              <div className="text-center py-12">
-                <p className="text-gray-500 text-lg mb-4">
-                  Você ainda não se inscreveu em nenhum evento.
-                </p>
-                <Link to="/">
-                  <Button>Explorar Eventos</Button>
-                </Link>
-              </div>
-            )}
-          </TabsContent>
-
-          <TabsContent value="events" className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h2 className="text-2xl font-semibold">
-                {user.type === "organizer" ? "Eventos Organizados" : "Eventos"}
-              </h2>
-              {user.type === "organizer" && (
-                <Link to="/create-event">
-                  <Button>
-                    <Plus className="w-4 h-4 mr-2" />
-                    Novo Evento
-                  </Button>
-                </Link>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {myEvents.map((event) => (
-                <Card key={event.id}>
+          ) : (
+            filteredEvents.map((event) => {
+              const eventStatus = getEventStatus(
+                event.limit,
+                event.attendees.length
+              );
+              return (
+                <Card
+                  key={event.id}
+                  className="hover:shadow-lg transition-shadow"
+                >
                   <CardHeader>
                     <div className="flex justify-between items-start mb-2">
-                      <Badge className={getStatusColor(event.status)}>
-                        {event.status === "upcoming"
-                          ? "Próximo"
-                          : event.status === "ongoing"
-                          ? "Em andamento"
-                          : "Concluído"}
+                      <Badge className={getCategoryColor(event.category)}>
+                        {event.category}
                       </Badge>
-                      {user.type === "organizer" && (
-                        <Link to={`/event/${event.id}/attendees`}>
-                          <Button variant="ghost" size="sm">
-                            <Settings className="w-4 h-4" />
-                          </Button>
-                        </Link>
-                      )}
+                      <span
+                        className={`text-sm font-medium ${eventStatus.color}`}
+                      >
+                        {eventStatus.text}
+                      </span>
                     </div>
-                    <CardTitle className="text-lg">{event.title}</CardTitle>
+                    <CardTitle className="text-lg">{event.name}</CardTitle>
                     <CardDescription className="line-clamp-2">
                       {event.description}
                     </CardDescription>
@@ -292,9 +268,7 @@ export default function DashboardPage() {
                     <div className="space-y-2 mb-4">
                       <div className="flex items-center text-sm text-gray-600">
                         <Calendar className="w-4 h-4 mr-2" />
-                        {new Date(event.date).toLocaleDateString(
-                          "pt-BR"
-                        )} às {event.time}
+                        {new Date(event.date).toLocaleDateString("pt-BR")}
                       </div>
                       <div className="flex items-center text-sm text-gray-600">
                         <MapPin className="w-4 h-4 mr-2" />
@@ -302,61 +276,23 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center text-sm text-gray-600">
                         <Users className="w-4 h-4 mr-2" />
-                        {event.registered}/{event.capacity} inscritos
+                        {event.attendees.length}/{event.limit} inscritos
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      {user.type === "organizer" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => exportAttendees(event.id)}
-                        >
-                          <Download className="w-4 h-4 mr-1" />
-                          CSV
-                        </Button>
-                      )}
-                      <Link
-                        to={`/event/${event.id}/attendees`}
-                        className="flex-1"
-                      >
+                    <div className="flex justify-between items-center gap-2">
+                      <Link to={`/event/${event.id}`} className="flex-1">
                         <Button size="sm" className="w-full">
-                          {user.type === "organizer"
-                            ? "Ver Inscritos"
-                            : "Ver Detalhes"}
+                          Ver Detalhes
                         </Button>
                       </Link>
                     </div>
                   </CardContent>
                 </Card>
-              ))}
-            </div>
-
-            {myEvents.length === 0 && (
-              <div className="text-center py-12">
-                <p className="text-gray-500 text-lg mb-4">
-                  {user.type === "organizer"
-                    ? "Você ainda não criou nenhum evento."
-                    : "Não há eventos disponíveis."}
-                </p>
-                {user.type === "organizer" ? (
-                  <Link to="/create-event">
-                    <Button>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Criar Primeiro Evento
-                    </Button>
-                  </Link>
-                ) : (
-                  <Link to="/">
-                    <Button>Explorar Eventos</Button>
-                  </Link>
-                )}
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </div>
+              );
+            })
+          )}
+        </div>
+      </section>
     </div>
   );
 }
